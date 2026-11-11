@@ -8,47 +8,98 @@ namespace EmployeeManagementSystem.Services
     {
         private readonly IMongoCollection<User> _users;
         private readonly IMongoCollection<Department> _departments;
+        private readonly ILogger<EmployeeService> _logger;
 
-        public EmployeeService(IMongoDatabase database)
+        public EmployeeService(IMongoDatabase database, ILogger<EmployeeService> logger)
         {
             _users = database.GetCollection<User>("users");
             _departments = database.GetCollection<Department>("departments");
+            _logger = logger;
         }
 
         // Get all employees
-        public async Task<List<EmployeeResponseDto>> GetAllEmployeesAsync(
-            CancellationToken cancellationToken = default)
-        {
-            var filter = Builders<User>.Filter.Eq(
-                user => user.DeletedAt, null);
+        //public async Task<List<EmployeeResponseDto>> GetAllEmployeesAsync(
+        //    CancellationToken cancellationToken = default)
+        //{
+        //    _logger.LogInformation("Fetching all active employees.");
 
-            var users = await _users
-                .Find(filter)
+        //    var filter = Builders<User>.Filter.Eq(
+        //        user => user.DeletedAt, null);
+
+        //    var users = await _users
+        //        .Find(filter)
+        //        .ToListAsync(cancellationToken);
+
+        //    return users.Select(MapToResponse).ToList();
+        //}
+
+        public async Task<List<EmployeeResponseDto>> GetAllEmployeesAsync(CancellationToken cancellationToken = default)
+        {
+            _logger.LogInformation("Fetching all active employees.");
+
+            var employees = await _users
+                .Find(user => user.DeletedAt == null)
                 .ToListAsync(cancellationToken);
 
-            return users.Select(MapToResponse).ToList();
+            _logger.LogInformation(
+                "Successfully fetched {EmployeeCount} active employees.",
+                employees.Count);
+
+            return employees.Select(MapToResponse).ToList();
         }
 
         // Get employee by ID
-        public async Task<EmployeeResponseDto?> GetEmployeeByIdAsync(
-            string id,
-            CancellationToken cancellationToken = default)
+        //public async Task<EmployeeResponseDto?> GetEmployeeByIdAsync(
+        //    string id,
+        //    CancellationToken cancellationToken = default)
+        //{
+        //    if (!MongoDB.Bson.ObjectId.TryParse(id, out _))
+        //    {
+        //        return null;
+        //    }
+
+        //    var filter = Builders<User>.Filter.And(
+        //        Builders<User>.Filter.Eq(user => user.Id, id),
+        //        Builders<User>.Filter.Eq(user => user.DeletedAt, null)
+        //    );
+
+        //    var user = await _users
+        //        .Find(filter)
+        //        .FirstOrDefaultAsync(cancellationToken);
+
+        //    return user == null ? null : MapToResponse(user);
+        //}
+
+        public async Task<EmployeeResponseDto?> GetEmployeeByIdAsync(string id,CancellationToken cancellationToken = default)
         {
+            _logger.LogInformation(
+                "Fetching employee with ID: {EmployeeId}", id);
+
             if (!MongoDB.Bson.ObjectId.TryParse(id, out _))
             {
+                _logger.LogWarning(
+                    "Invalid employee ID format: {EmployeeId}", id);
+
                 return null;
             }
 
-            var filter = Builders<User>.Filter.And(
-                Builders<User>.Filter.Eq(user => user.Id, id),
-                Builders<User>.Filter.Eq(user => user.DeletedAt, null)
-            );
-
-            var user = await _users
-                .Find(filter)
+            var employee = await _users
+                .Find(user => user.Id == id && user.DeletedAt == null)
                 .FirstOrDefaultAsync(cancellationToken);
 
-            return user == null ? null : MapToResponse(user);
+            if (employee == null)
+            {
+                _logger.LogWarning(
+                    "Employee not found with ID: {EmployeeId}", id);
+
+                return null;
+            }
+
+            _logger.LogInformation(
+                "Successfully retrieved employee {EmployeeCode}",
+                employee.EmployeeCode);
+
+            return MapToResponse(employee);
         }
 
         //Create a new employee
@@ -56,75 +107,103 @@ namespace EmployeeManagementSystem.Services
             CreateEmployeeDto dto,
             CancellationToken cancellationToken = default)
         {
-            // 1. Check whether EmployeeCode already exists
-            var employeeCodeExists = await _users
-                .Find(user => user.EmployeeCode == dto.EmployeeCode)
-                .AnyAsync(cancellationToken);
 
-            if (employeeCodeExists)
+            try
             {
-                throw new InvalidOperationException(
-                    "An employee with this EmployeeCode already exists.");
-            }
+                _logger.LogInformation(
+                    "Creating employee with email: {Email}", dto.Email);
 
-            // 2. Check whether Email already exists
-            var emailExists = await _users
-                .Find(user => user.Email == dto.Email)
-                .AnyAsync(cancellationToken);
+                // Keep your existing CreateEmployeeAsync logic here.
 
-            if (emailExists)
-            {
-                throw new InvalidOperationException(
-                    "An employee with this Email already exists.");
-            }
 
-            // 3. Verify DepartmentId
-            var department = await _departments
-                .Find(dept => dept.Id == dto.DepartmentId)
-                .FirstOrDefaultAsync(cancellationToken);
+                // 1. Check whether EmployeeCode already exists
+                var employeeCodeExists = await _users
+                    .Find(user => user.EmployeeCode == dto.EmployeeCode)
+                    .AnyAsync(cancellationToken);
 
-            if (department == null)
-            {
-                throw new InvalidOperationException(
-                    "The specified department does not exist.");
-            }
-
-            // 4. Hash the password
-            string passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
-
-            // 5. Create the User document
-            var user = new User
-            {
-                Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
-                EmployeeCode = dto.EmployeeCode,
-                FirstName = dto.FirstName,
-                LastName = dto.LastName,
-                DisplayName = $"{dto.FirstName} {dto.LastName}",
-                Email = dto.Email,
-                Phone = dto.Phone ?? string.Empty,
-                PasswordHash = passwordHash,
-                Role = dto.Role,
-                Status = dto.Status,
-                DepartmentId = dto.DepartmentId,
-                ManagerId = dto.ManagerId,
-
-                Profile = new UserProfile
+                if (employeeCodeExists)
                 {
-                    JobTitle = dto.JobTitle ?? string.Empty
-                },
+                    throw new InvalidOperationException(
+                        "An employee with this EmployeeCode already exists.");
+                }
 
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-                Version = 1
-            };
+                // 2. Check whether Email already exists
+                var emailExists = await _users
+                    .Find(user => user.Email == dto.Email)
+                    .AnyAsync(cancellationToken);
 
-            // 6. Insert document into MongoDB
-            await _users.InsertOneAsync(
-                user,
-                cancellationToken: cancellationToken);
+                if (emailExists)
+                {
+                    throw new InvalidOperationException(
+                        "An employee with this Email already exists.");
+                }
 
-            // 7. Return response DTO
-            return MapToResponse(user);
+                // 3. Verify DepartmentId
+                var department = await _departments
+                    .Find(dept => dept.Id == dto.DepartmentId)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (department == null)
+                {
+                    throw new InvalidOperationException(
+                        "The specified department does not exist.");
+                }
+
+                // 4. Hash the password
+                string passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+
+                // 5. Create the User document
+                var user = new User
+                {
+                    Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
+                    EmployeeCode = dto.EmployeeCode,
+                    FirstName = dto.FirstName,
+                    LastName = dto.LastName,
+                    DisplayName = $"{dto.FirstName} {dto.LastName}",
+                    Email = dto.Email,
+                    Phone = dto.Phone ?? string.Empty,
+                    PasswordHash = passwordHash,
+                    Role = dto.Role,
+                    Status = dto.Status,
+                    DepartmentId = dto.DepartmentId,
+                    ManagerId = dto.ManagerId,
+
+                    Profile = new UserProfile
+                    {
+                        JobTitle = dto.JobTitle ?? string.Empty
+                    },
+
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    Version = 1
+                };
+
+                // 6. Insert document into MongoDB
+                await _users.InsertOneAsync(
+                    user,
+                    cancellationToken: cancellationToken);
+
+                // 7. Return response DTO
+                //return MapToResponse(user);
+
+
+                // After successful insertion:
+                _logger.LogInformation(
+                    "Employee created successfully. EmployeeCode: {EmployeeCode}",
+                    user.EmployeeCode);
+
+                return MapToResponse(user);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "An error occurred while creating employee with email: {Email}",
+                    dto.Email);
+
+                throw;
+            }
+
         }
 
 
@@ -134,6 +213,8 @@ namespace EmployeeManagementSystem.Services
             UpdateEmployeeDto dto,
             CancellationToken cancellationToken = default)
         {
+
+            _logger.LogInformation("Updating employee with ID: {EmployeeId}", id);
             // 1. Validate MongoDB ObjectId
             if (!MongoDB.Bson.ObjectId.TryParse(id, out _))
             {
@@ -152,6 +233,7 @@ namespace EmployeeManagementSystem.Services
 
             if (user == null)
             {
+                _logger.LogWarning("Employee with ID: {EmployeeId} not found.", id);
                 return null;
             }
 
@@ -162,8 +244,10 @@ namespace EmployeeManagementSystem.Services
 
             if (emailExists)
             {
+                _logger.LogWarning("Email address {Email} is already in use.", dto.Email);
                 throw new InvalidOperationException(
                     "This email address is already used by another employee.");
+
             }
 
             // 4. Verify the department exists
@@ -202,6 +286,9 @@ namespace EmployeeManagementSystem.Services
                 user,
                 cancellationToken: cancellationToken);
 
+
+            _logger.LogInformation("Employee updated successfully. EmployeeId: {EmployeeId}", id);
+
             // 8. Return updated employee
             return MapToResponse(user);
         }
@@ -211,9 +298,12 @@ namespace EmployeeManagementSystem.Services
             string id,
             CancellationToken cancellationToken = default)
         {
+
+            _logger.LogInformation("Deleting employee with ID: {EmployeeId}", id);
             // 1. Validate MongoDB ObjectId
             if (!MongoDB.Bson.ObjectId.TryParse(id, out _))
             {
+                _logger.LogWarning("Invalid employee ID format: {EmployeeId}", id);
                 return false;
             }
 
@@ -234,6 +324,8 @@ namespace EmployeeManagementSystem.Services
                 filter,
                 update,
                 cancellationToken: cancellationToken);
+
+            _logger.LogInformation("Employee soft-deleted successfully. EmployeeId: {EmployeeId}", id);
 
             // 5. Return whether an employee was found and updated
             return result.ModifiedCount > 0;

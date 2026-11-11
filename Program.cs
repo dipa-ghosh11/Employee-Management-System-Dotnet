@@ -3,8 +3,14 @@ using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 
 using EmployeeManagementSystem.Services;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, configuration) =>
+{
+    configuration.ReadFrom.Configuration(context.Configuration);
+});
 
 // Register services
 //builder.Services.AddControllers();
@@ -48,6 +54,9 @@ builder.Services.AddScoped<DepartmentService>();
 
 // Build the application AFTER all registrations
 var app = builder.Build();
+Log.Information("Employee Management System application is starting...");
+
+app.UseSerilogRequestLogging();
 
 // Configure HTTP pipeline
 if (app.Environment.IsDevelopment())
@@ -94,5 +103,7 @@ app.MapGet("/api/health/mongodb",
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     });
+
+Log.Information("Employee Management System application is ready.");
 
 app.Run();

@@ -1,5 +1,9 @@
-﻿namespace EmployeeManagementSystem.Configuration
+﻿
+
+
+namespace EmployeeManagementSystem.Configuration
 {
+
     public class MongoDbSettings
     {
         public string ConnectionString { get; set; } = "";
